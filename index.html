@@ -1,0 +1,1654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>太阳系卫星真实轨道 · 3D</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #02040a; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #e8eef8; }
+    #c { display: block; width: 100%; height: 100%; }
+    #hud {
+      position: fixed; top: 12px; left: 12px; z-index: 10;
+      max-width: min(380px, 92vw); padding: 14px 16px;
+      background: rgba(8, 14, 28, 0.82); border: 1px solid rgba(120, 160, 255, 0.25);
+      border-radius: 12px; backdrop-filter: blur(10px); font-size: 13px; line-height: 1.45;
+    }
+    #hud h1 { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: #9ec5ff; }
+    #hud p { opacity: 0.85; margin-bottom: 8px; }
+    #hud .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    button, select, label {
+      font: inherit; color: inherit; background: rgba(40, 60, 100, 0.6);
+      border: 1px solid rgba(140, 180, 255, 0.3); border-radius: 8px; padding: 6px 10px; cursor: pointer;
+    }
+    button:hover { background: rgba(60, 90, 150, 0.75); }
+    button.active { background: rgba(70, 120, 220, 0.85); border-color: #8ab4ff; }
+    label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    input[type="range"] { width: 120px; vertical-align: middle; }
+    #info {
+      position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 10;
+      max-width: 720px; padding: 12px 14px;
+      background: rgba(8, 14, 28, 0.85); border: 1px solid rgba(120, 160, 255, 0.2);
+      border-radius: 12px; font-size: 12px; line-height: 1.5; max-height: 28vh; overflow: auto;
+    }
+    #info strong { color: #b8d4ff; }
+    #info code { color: #9ef0c8; font-size: 11px; }
+    #tip { position: fixed; top: 12px; right: 12px; z-index: 10; font-size: 12px; opacity: 0.7; text-align: right; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hud">
+    <h1>太阳系 · NASA/JPL 尺度与轨道</h1>
+    <p>
+      <strong>太阳半径相对 AU 始终为物理真值</strong>（R☉≈0.00465 AU），故水星/金星轨道不会穿入太阳。
+      行星体积彼此按 IAU 平均半径严格等比；可选「行星放大」仅放大行星（有上限，不改太阳与轨道）。
+    </p>
+    <div class="row">
+      <label>速度 <input id="speed" type="range" min="0" max="200" value="40" /></label>
+      <label><input id="trails" type="checkbox" checked /> 轨道线</label>
+      <label><input id="labels" type="checkbox" checked /> 标签</label>
+      <label><input id="cometsOn" type="checkbox" checked /> 彗星</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>行星放大 <input id="sizeMul" type="range" min="1" max="200" value="55" title="不改变太阳与轨道尺度；行星半径有硬顶以免失真" /></label>
+      <label><input id="trueAuSize" type="checkbox" /> 行星也相对 AU 真实尺度</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <select id="focus">
+        <option value="sun">焦点：太阳系</option>
+        <option value="earth" selected>地球 · 公转与四季</option>
+        <option value="mars">火星系</option>
+        <option value="jupiter">木星系</option>
+        <option value="saturn">土星系</option>
+        <option value="uranus">天王星系</option>
+        <option value="neptune">海王星系</option>
+        <option value="halley">哈雷彗星</option>
+        <option value="halebopp">海尔–波普</option>
+      </select>
+      <button type="button" id="resetCam">重置视角</button>
+      <button type="button" id="perihelion" title="把仿真时间调到彗星近日点，便于观察彗尾">彗星→近日点</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label><input id="seasonsOn" type="checkbox" checked /> 地球四季模式</label>
+      <button type="button" id="jumpSeason" title="依次跳到春分/夏至/秋分/冬至">跳转节气</button>
+      <label>自转速度 <input id="spinMul" type="range" min="0" max="100" value="25" /></label>
+    </div>
+  </div>
+  <div id="seasonHud">
+    <div class="season-title" id="seasonTitle">地球 · 北半球季节</div>
+    <div class="season-name" id="seasonName">—</div>
+    <div class="season-meta" id="seasonMeta"></div>
+    <div class="season-bar"><span id="seasonBar"></span></div>
+    <div class="season-hint">
+      成因：地轴相对黄道倾斜 <b>23.44°</b>，公转时指向近似不变（北极星方向）。
+      不是因为「离太阳远近」（近日点在 1 月初，反而是北半球冬季）。
+    </div>
+  </div>
+  <div id="tip">拖拽旋转 · 滚轮缩放 · 右键平移<br />黄道上的春分/夏至/秋分/冬至标记</div>
+  <div id="info">
+    <strong>地球公转与四季</strong>：地轴倾角 ε=23.44°；公转周期 365.256 d；自转周期约 0.997 d（恒星日）。
+    打开「地球四季模式」可看转轴、赤道、昼夜分界与四个节气。点击地球查看详细参数。
+  </div>
+  <style>
+    #seasonHud {
+      position: fixed; top: 12px; right: 12px; z-index: 10;
+      width: min(320px, 92vw); padding: 14px 16px;
+      background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(120, 200, 160, 0.35);
+      border-radius: 12px; backdrop-filter: blur(10px); font-size: 12px; line-height: 1.45;
+    }
+    #seasonHud .season-title { color: #9ec5ff; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    #seasonHud .season-name { font-size: 26px; font-weight: 700; letter-spacing: 0.08em; margin: 4px 0 6px; }
+    #seasonHud .season-meta { opacity: 0.9; margin-bottom: 8px; }
+    #seasonHud .season-meta code { color: #9ef0c8; font-size: 11px; }
+    #seasonHud .season-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; margin-bottom: 8px; }
+    #seasonHud .season-bar span { display: block; height: 100%; width: 25%; border-radius: 4px; transition: width 0.2s, background 0.3s; }
+    #seasonHud .season-hint { opacity: 0.75; font-size: 11px; }
+    #seasonHud.spring .season-name { color: #7dffa0; }
+    #seasonHud.summer .season-name { color: #ffd36a; }
+    #seasonHud.autumn .season-name { color: #ff9a5c; }
+    #seasonHud.winter .season-name { color: #8ec8ff; }
+  </style>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    /**
+     * 真实轨道根数（近似历元；卫星相对母星）
+     * a_km: 半长轴 (km)
+     * e: 偏心率
+     * i_deg: 倾角（相对母星赤道或黄道，常用平均值）
+     * period_d: 公转周期 (天)
+     * Ω, ω, M0: 升交点经度、近点幅角、历元平近点角 (deg) — 示意相位
+     */
+    const AU_KM = 149597870.7;
+    // IAU / NASA 平均半径 (km)。体积 V = 4/3 π R³ 由半径精确导出
+    const SUN_R_KM = 695700;
+    const EARTH_R_KM = 6371.0;
+
+    // 行星绕日：a 单位 AU；R_km 为体积球等效平均半径
+    const PLANETS = [
+      { id: "mercury", name: "水星", a_au: 0.387098, e: 0.20563, i_deg: 7.005, period_d: 87.969, color: 0xb5b5b5, R_km: 2439.7 },
+      { id: "venus", name: "金星", a_au: 0.723332, e: 0.006772, i_deg: 3.3947, period_d: 224.701, color: 0xe8cda0, R_km: 6051.8 },
+      { id: "earth", name: "地球", a_au: 1.000000, e: 0.016708, i_deg: 0.00005, period_d: 365.256, color: 0x4a90d9, R_km: 6371.0 },
+      { id: "mars", name: "火星", a_au: 1.523679, e: 0.0934, i_deg: 1.850, period_d: 686.980, color: 0xc1440e, R_km: 3389.5 },
+      { id: "jupiter", name: "木星", a_au: 5.2044, e: 0.0489, i_deg: 1.303, period_d: 4332.59, color: 0xd4a574, R_km: 69911 },
+      { id: "saturn", name: "土星", a_au: 9.5826, e: 0.0565, i_deg: 2.485, period_d: 10759.22, color: 0xe6d5a8, R_km: 58232 },
+      { id: "uranus", name: "天王星", a_au: 19.2184, e: 0.0463, i_deg: 0.773, period_d: 30688.5, color: 0x7ec8e3, R_km: 25362 },
+      { id: "neptune", name: "海王星", a_au: 30.1104, e: 0.009456, i_deg: 1.768, period_d: 60182, color: 0x4166f5, R_km: 24622 },
+    ];
+
+    function volumeKm3(R_km) {
+      return (4 / 3) * Math.PI * Math.pow(R_km, 3);
+    }
+    function formatSci(x, digits = 4) {
+      if (!Number.isFinite(x) || x === 0) return "0";
+      const exp = Math.floor(Math.log10(Math.abs(x)));
+      const mant = x / Math.pow(10, exp);
+      return `${mant.toFixed(digits)}×10${expToSup(exp)}`;
+    }
+    function expToSup(n) {
+      const map = { "-": "⁻", "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹" };
+      return String(n).split("").map((c) => map[c] ?? c).join("");
+    }
+    function formatEarthVolumes(V) {
+      const earthV = volumeKm3(EARTH_R_KM);
+      const n = V / earthV;
+      if (n >= 100) return n.toFixed(1);
+      if (n >= 10) return n.toFixed(2);
+      return n.toFixed(3);
+    }
+
+    // 主要天然卫星（a_km 相对母星）
+    const MOONS = [
+      // 地球
+      { parent: "earth", name: "月球", a_km: 384399, e: 0.0549, i_deg: 5.145, period_d: 27.321661, color: 0xcccccc, r: 0.35, Ω: 125.08, ω: 318.15, M0: 135.27 },
+      // 火星
+      { parent: "mars", name: "火卫一 Phobos", a_km: 9376, e: 0.0151, i_deg: 1.093, period_d: 0.31891, color: 0xa08070, r: 0.12, Ω: 0, ω: 0, M0: 20 },
+      { parent: "mars", name: "火卫二 Deimos", a_km: 23463, e: 0.00033, i_deg: 0.93, period_d: 1.26244, color: 0x908070, r: 0.1, Ω: 40, ω: 10, M0: 80 },
+      // 木星伽利略卫星 + 主要
+      { parent: "jupiter", name: "木卫一 Io", a_km: 421700, e: 0.0041, i_deg: 0.036, period_d: 1.769, color: 0xf0d060, r: 0.28, Ω: 0, ω: 0, M0: 0 },
+      { parent: "jupiter", name: "木卫二 Europa", a_km: 671034, e: 0.009, i_deg: 0.466, period_d: 3.551, color: 0xb0c4de, r: 0.26, Ω: 30, ω: 20, M0: 50 },
+      { parent: "jupiter", name: "木卫三 Ganymede", a_km: 1070412, e: 0.0013, i_deg: 0.177, period_d: 7.155, color: 0x9a8b7a, r: 0.32, Ω: 60, ω: 40, M0: 100 },
+      { parent: "jupiter", name: "木卫四 Callisto", a_km: 1882709, e: 0.0074, i_deg: 0.192, period_d: 16.689, color: 0x6b5b4f, r: 0.3, Ω: 90, ω: 60, M0: 150 },
+      { parent: "jupiter", name: "木卫五 Amalthea", a_km: 181365, e: 0.003, i_deg: 0.38, period_d: 0.498, color: 0x886655, r: 0.1, Ω: 15, ω: 5, M0: 200 },
+      // 土星
+      { parent: "saturn", name: "土卫六 Titan", a_km: 1221870, e: 0.0288, i_deg: 0.3485, period_d: 15.945, color: 0xd4a060, r: 0.34, Ω: 0, ω: 0, M0: 10 },
+      { parent: "saturn", name: "土卫五 Rhea", a_km: 527108, e: 0.001, i_deg: 0.345, period_d: 4.518, color: 0xc0c0c0, r: 0.22, Ω: 20, ω: 10, M0: 40 },
+      { parent: "saturn", name: "土卫八 Iapetus", a_km: 3560820, e: 0.0283, i_deg: 15.47, period_d: 79.3215, color: 0x706050, r: 0.2, Ω: 80, ω: 30, M0: 90 },
+      { parent: "saturn", name: "土卫四 Dione", a_km: 377396, e: 0.0022, i_deg: 0.028, period_d: 2.737, color: 0xd0d0d0, r: 0.18, Ω: 40, ω: 15, M0: 70 },
+      { parent: "saturn", name: "土卫三 Tethys", a_km: 294619, e: 0.0001, i_deg: 1.12, period_d: 1.888, color: 0xe0e0e0, r: 0.17, Ω: 55, ω: 25, M0: 110 },
+      { parent: "saturn", name: "土卫二 Enceladus", a_km: 237948, e: 0.0047, i_deg: 0.009, period_d: 1.370, color: 0xf0f8ff, r: 0.14, Ω: 70, ω: 35, M0: 130 },
+      { parent: "saturn", name: "土卫一 Mimas", a_km: 185539, e: 0.0196, i_deg: 1.574, period_d: 0.942, color: 0xbbbbbb, r: 0.12, Ω: 85, ω: 45, M0: 160 },
+      // 天王星（赤道倾角大；此处 i 相对轨道面近似展示）
+      { parent: "uranus", name: "天卫三 Titania", a_km: 435910, e: 0.0011, i_deg: 0.34, period_d: 8.706, color: 0xa0b0c0, r: 0.2, Ω: 0, ω: 0, M0: 20 },
+      { parent: "uranus", name: "天卫四 Oberon", a_km: 583520, e: 0.0014, i_deg: 0.058, period_d: 13.463, color: 0x9098a0, r: 0.19, Ω: 30, ω: 10, M0: 60 },
+      { parent: "uranus", name: "天卫一 Ariel", a_km: 190900, e: 0.0012, i_deg: 0.26, period_d: 2.520, color: 0xb0c0d0, r: 0.16, Ω: 50, ω: 20, M0: 100 },
+      { parent: "uranus", name: "天卫二 Umbriel", a_km: 266000, e: 0.0039, i_deg: 0.205, period_d: 4.144, color: 0x607080, r: 0.15, Ω: 70, ω: 30, M0: 140 },
+      { parent: "uranus", name: "天卫五 Miranda", a_km: 129900, e: 0.0013, i_deg: 4.338, period_d: 1.413, color: 0xc0c8d0, r: 0.12, Ω: 90, ω: 40, M0: 180 },
+      // 海王星
+      { parent: "neptune", name: "海卫一 Triton", a_km: 354759, e: 0.000016, i_deg: 156.885, period_d: 5.87685, color: 0xc8d8e8, r: 0.28, Ω: 0, ω: 0, M0: 0 },
+      { parent: "neptune", name: "海卫八 Proteus", a_km: 117647, e: 0.0005, i_deg: 0.524, period_d: 1.122, color: 0x808890, r: 0.12, Ω: 40, ω: 20, M0: 90 },
+      { parent: "neptune", name: "海卫二 Nereid", a_km: 5513818, e: 0.7507, i_deg: 7.23, period_d: 360.13, color: 0xa0a8b0, r: 0.11, Ω: 100, ω: 280, M0: 45 },
+    ];
+
+    /**
+     * 彗星：JPL 轨道 + NASA/文献核尺寸
+     * 核：哈雷 Giotto 约 15.3×7.2×7.2 km 不规则体；等效球半径 R_eq 使 V=4/3πR³
+     * 海尔–波普核直径文献约 40–80 km，取 R_eq≈30 km（常见折中）
+     * 体积远小于行星——真 AU 尺度下仅为微点；显示时用「核拾取下限」但不夸大到行星级
+     */
+    const COMETS = [
+      {
+        id: "halley",
+        name: "哈雷彗星 1P/Halley",
+        a_au: 17.834144,
+        e: 0.9671429,
+        i_deg: 162.26269,
+        Ω: 58.42008,
+        ω: 111.33249,
+        period_d: 75.32 * 365.256363,
+        M0: 192.0,
+        color: 0x88e0a8,
+        q_au: 17.834144 * (1 - 0.9671429),
+        // 半轴 a,b,c (km) 椭球近似 Giotto；R_eq = (abc)^{1/3}
+        nucleus_abc_km: [7.65, 3.6, 3.6],
+        R_eq_km: Math.pow(7.65 * 3.6 * 3.6, 1 / 3), // ≈ 4.63 km
+        albedo: 0.04,
+        // 相对活动强度（产率归一化，哈雷中等、海尔–波普很亮）
+        Q_scale: 1.0,
+        note: "核约 15×7×7 km 暗色不规则体；周期 ~75.3 yr，逆行。",
+      },
+      {
+        id: "halebopp",
+        name: "海尔–波普 C/1995 O1",
+        a_au: 177.43,
+        e: 0.99498,
+        i_deg: 89.288,
+        Ω: 282.47,
+        ω: 130.41,
+        period_d: 2533 * 365.256363,
+        M0: 4.12,
+        color: 0xffb070,
+        q_au: 177.43 * (1 - 0.99498),
+        nucleus_abc_km: [30, 30, 30],
+        R_eq_km: 30, // ~60 km 直径量级
+        albedo: 0.04,
+        Q_scale: 8.0, // 1997 年极高产率，尾/发远大于哈雷
+        note: "大核 + 高产率；1997 近日点时尾长可达数 AU 量级（视觉）。",
+      },
+    ];
+
+    // —— 视觉比例（与 NASA 一致：轨道与太阳同用 AU 物理尺度）——
+    // 1 AU → PLANET_SCALE 场景单位；太阳/行星真半径 = R_km / AU_KM * PLANET_SCALE
+    const PLANET_SCALE = 28;
+    const KM_TO_SCENE = PLANET_SCALE / AU_KM;
+    // 太阳真实角半径（相对 AU）
+    const SUN_R_AU = SUN_R_KM / AU_KM; // ≈ 0.00465047
+    // 行星「放大」时：地球视觉半径 = EARTH_SCENE_BASE * sizeMul，但不得超过硬顶
+    const EARTH_SCENE_BASE = 0.008;
+    // 任何行星场景半径 ≤ 水星近日点距离的 8%（且远小于 R☉ 场景时的空隙）
+    // 水星 q = a(1-e) ≈ 0.3075 AU
+    const MERCURY_Q_AU = 0.387098 * (1 - 0.20563);
+
+    function sunSceneRadius() {
+      // 始终真值：绝不随「行星放大」变化
+      return SUN_R_AU * PLANET_SCALE;
+    }
+
+    function planetSceneRadius(R_km, sizeMul, trueAu) {
+      const rTrue = R_km * KM_TO_SCENE;
+      if (trueAu) return rTrue;
+      // 行星间保持 R 真实等比
+      let r = (R_km / EARTH_R_KM) * EARTH_SCENE_BASE * sizeMul;
+      // 硬顶：不超过水星近日点的一小部分，保证内行星轨道远在太阳之外且球体不撑破轨道
+      const hardCap = MERCURY_Q_AU * PLANET_SCALE * 0.06;
+      // 另：单颗行星半径不超过其自身半长轴的 2.5%（放大模式下）
+      return Math.min(r, hardCap);
+    }
+
+    // 卫星轨道半长轴视觉：相对母星半径，用 a/R_parent 的压缩映射，避免穿模
+    function moonOrbitSceneA(a_km, parentR_scene, parentR_km) {
+      const aOverR = a_km / parentR_km;
+      const compressed = Math.pow(aOverR, 0.55);
+      return parentR_scene * Math.max(1.35, 0.85 * compressed);
+    }
+
+    const DEG = Math.PI / 180;
+
+    function solveKepler(M, e, tol = 1e-12) {
+      // 高偏心率彗星用 Danby 型初值 + 牛顿迭代
+      M = ((M % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      if (M > Math.PI) M -= 2 * Math.PI; // (-π, π] 更稳
+      let E;
+      if (e < 0.8) {
+        E = M;
+      } else {
+        E = M + e * Math.sin(M) + 0.5 * e * e * Math.sin(2 * M);
+      }
+      for (let k = 0; k < 50; k++) {
+        const se = Math.sin(E);
+        const ce = Math.cos(E);
+        const f = E - e * se - M;
+        const fp = 1 - e * ce;
+        // Halley 法修正
+        const fpp = e * se;
+        let d = -f / fp;
+        d = -f / (fp + 0.5 * d * fpp);
+        E += d;
+        if (Math.abs(d) < tol) break;
+      }
+      return E;
+    }
+
+    function trueAnomaly(E, e) {
+      const cosE = Math.cos(E);
+      const sinE = Math.sin(E);
+      const cosν = (cosE - e) / (1 - e * cosE);
+      const sinν = (Math.sqrt(1 - e * e) * sinE) / (1 - e * cosE);
+      return Math.atan2(sinν, cosν);
+    }
+
+    /**
+     * 开普勒位置（母星质心为原点）
+     * 返回本地轨道坐标系下的 (x,y,z)：x 指向春分/参考方向经 Ω,ω,i 旋转后
+     */
+    function keplerPosition(elements, days) {
+      const { a, e, i, Ω, ω, period, M0 } = elements;
+      const n = (2 * Math.PI) / period; // rad / day
+      let M = (M0 + n * days) % (2 * Math.PI);
+      if (M < 0) M += 2 * Math.PI;
+      const E = solveKepler(M, e);
+      const ν = trueAnomaly(E, e);
+      const r = (a * (1 - e * e)) / (1 + e * Math.cos(ν));
+      // 轨道面内 periapsis 方向
+      const x_orb = r * Math.cos(ν);
+      const y_orb = r * Math.sin(ν);
+      // 旋转：ω → i → Ω (标准 PQW → ECI)
+      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω);
+      const cosi = Math.cos(i), sini = Math.sin(i);
+      const cosω = Math.cos(ω), sinω = Math.sin(ω);
+      const x =
+        (cosΩ * cosω - sinΩ * sinω * cosi) * x_orb +
+        (-cosΩ * sinω - sinΩ * cosω * cosi) * y_orb;
+      const y =
+        (sinΩ * cosω + cosΩ * sinω * cosi) * x_orb +
+        (-sinΩ * sinω + cosΩ * cosω * cosi) * y_orb;
+      const z = (sinω * sini) * x_orb + (cosω * sini) * y_orb;
+      return new THREE.Vector3(x, z, -y); // Y-up 场景：把 z 轨道倾角映到场景 Y
+    }
+
+    function orbitCurvePoints(elements, segments = 256) {
+      const pts = [];
+      for (let i = 0; i <= segments; i++) {
+        const frac = i / segments;
+        // 用平近点角扫一圈
+        const el = { ...elements, M0: 0 };
+        const days = frac * elements.period;
+        pts.push(keplerPosition({ ...el, M0: 0 }, days));
+      }
+      return pts;
+    }
+
+    // —— Three.js 场景 ——
+    const canvas = document.getElementById("c");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x02040a);
+    scene.fog = new THREE.FogExp2(0x02040a, 0.00035);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.02, 50000);
+    camera.position.set(35, 22, 48);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 0.15;
+    controls.maxDistance = 20000;
+
+    // 星空
+    {
+      const N = 4000;
+      const pos = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        const r = 800 + Math.random() * 1200;
+        const th = Math.random() * Math.PI * 2;
+        const ph = Math.acos(2 * Math.random() - 1);
+        pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+        pos[i * 3 + 1] = r * Math.cos(ph);
+        pos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, sizeAttenuation: true })));
+    }
+
+    function makeLabel(text) {
+      const c = document.createElement("canvas");
+      const ctx = c.getContext("2d");
+      const pad = 6;
+      ctx.font = "600 28px Segoe UI, Microsoft YaHei, sans-serif";
+      const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+      c.width = w;
+      c.height = 40;
+      ctx.font = "600 28px Segoe UI, Microsoft YaHei, sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, w, 40);
+      ctx.fillStyle = "#e8f0ff";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, pad, 20);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+      const sp = new THREE.Sprite(mat);
+      sp.scale.set(w / 40 * 1.1, 1.1, 1);
+      sp.userData.isLabel = true;
+      return sp;
+    }
+
+    // 太阳（半径 ∝ 真实 R，与行星同一套比例尺）
+    const sun = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 48, 48),
+      new THREE.MeshBasicMaterial({ color: 0xffdd66 })
+    );
+    scene.add(sun);
+    const sunGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.25 })
+    );
+    scene.add(sunGlow);
+    const sunLabel = makeLabel("太阳");
+    scene.add(sunLabel);
+    scene.add(new THREE.PointLight(0xfff0c0, 2.2, 0, 0));
+    scene.add(new THREE.AmbientLight(0x334466, 0.45));
+
+    const bodies = [];
+    const parentGroups = {};
+    const planetMeshes = {};
+    let saturnRing = null;
+    const moonBodies = []; // 便于按母星半径重算轨道 a
+
+    function addOrbitLine(elements, color, parentObj, segments = 200) {
+      const pts = orbitCurvePoints(elements, segments);
+      const g = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(
+        g,
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 })
+      );
+      line.userData.isOrbit = true;
+      parentObj.add(line);
+      return line;
+    }
+
+    function rebuildOrbitLine(line, elements) {
+      const pts = orbitCurvePoints(elements, 200);
+      line.geometry.dispose();
+      line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    }
+
+    // 地球：黄赤交角、公转根数（近日点≈1月3日）、节气日序
+    const EARTH_OBLIQUITY = 23.439281; // ° IAU
+    const EARTH_SIDEREAL_DAY = 0.99726968; // 恒星日 (d)
+    const PERIHELION_DOY = 3.0; // 近日点约 1 月 3 日
+    // 节气：近似格里历日序（非闰年）
+    const SEASON_MARKS = [
+      { id: "spring", name: "春分", north: "春季开始", doy: 79.0, color: 0x7dffa0, emoji: "春" },
+      { id: "summer", name: "夏至", north: "夏季（日照最长）", doy: 171.5, color: 0xffd36a, emoji: "夏" },
+      { id: "autumn", name: "秋分", north: "秋季开始", doy: 265.0, color: 0xff9a5c, emoji: "秋" },
+      { id: "winter", name: "冬至", north: "冬季（日照最短）", doy: 355.0, color: 0x8ec8ff, emoji: "冬" },
+    ];
+
+    // 行星：单位球 × scale = 真实半径比例
+    for (const p of PLANETS) {
+      const group = new THREE.Group();
+      group.name = p.id;
+      scene.add(group);
+      parentGroups[p.id] = group;
+
+      const elements = {
+        a: p.a_au * PLANET_SCALE,
+        e: p.e,
+        i: p.i_deg * DEG,
+        Ω: 0,
+        ω: 0,
+        period: p.period_d,
+        M0: 0,
+      };
+      const idx = ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"].indexOf(p.id);
+      if (p.id === "earth") {
+        // 黄道面近似 i=0；近日点幅角 ~102.9°；M0 使 simDays=日序 时近日点在第 3 天
+        elements.i = 0;
+        elements.Ω = 0;
+        elements.ω = 102.937 * DEG;
+        elements.M0 = -((2 * Math.PI) / elements.period) * PERIHELION_DOY;
+      } else {
+        elements.Ω = (idx * 37) * DEG;
+        elements.ω = (idx * 53) * DEG;
+        elements.M0 = (idx * 71) * DEG;
+      }
+
+      let mesh;
+      if (p.id === "earth") {
+        // 结构：group(公转位置) → tiltRig(黄赤交角, 惯性指向固定) → spinNode(自转) → 地表
+        const tiltRig = new THREE.Group();
+        const spinNode = new THREE.Group();
+        // 北半球偏蓝绿、南半球略深：顶点色近似
+        const geo = new THREE.SphereGeometry(1, 64, 48);
+        const cols = new Float32Array(geo.attributes.position.count * 3);
+        for (let i = 0; i < geo.attributes.position.count; i++) {
+          const y = geo.attributes.position.getY(i);
+          const lat = y; // -1..1
+          // 简单陆海色带
+          const ocean = new THREE.Color(0x1a5f9e);
+          const land = new THREE.Color(0x3d8b4f);
+          const ice = new THREE.Color(0xe8f0ff);
+          let c = ocean.clone().lerp(land, 0.35 + 0.25 * Math.sin(i * 0.7));
+          if (lat > 0.72 || lat < -0.72) c = ice;
+          else if (lat > 0.15) c.lerp(new THREE.Color(0x2f6b3a), 0.25);
+          cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+        }
+        geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+        mesh = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.65,
+            metalness: 0.05,
+          })
+        );
+        mesh.userData.bodyId = p.id;
+        mesh.userData.kind = "planet";
+        spinNode.add(mesh);
+
+        // 赤道
+        const eq = new THREE.Mesh(
+          new THREE.TorusGeometry(1.02, 0.012, 8, 64),
+          new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.85 })
+        );
+        eq.rotation.x = Math.PI / 2;
+        spinNode.add(eq);
+
+        // 北极 / 南极轴
+        const axisMat = new THREE.MeshBasicMaterial({ color: 0xff5566 });
+        const axisN = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.55, 8), axisMat);
+        axisN.position.y = 0.55;
+        const axisS = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.025, 0.025, 1.55, 8),
+          new THREE.MeshBasicMaterial({ color: 0x66aaff })
+        );
+        axisS.position.y = -0.55;
+        const axisGroup = new THREE.Group();
+        axisGroup.add(axisN, axisS);
+        // 北极箭头
+        const arrowN = new THREE.Mesh(
+          new THREE.ConeGeometry(0.07, 0.18, 10),
+          new THREE.MeshBasicMaterial({ color: 0xff3344 })
+        );
+        arrowN.position.y = 1.4;
+        axisGroup.add(arrowN);
+        spinNode.add(axisGroup);
+
+        // 黄赤交角：自转轴相对黄道法向倾斜 23.44°
+        // 倾斜方向固定：使「夏至」时北极倾向太阳（见 updateEarthSeasons）
+        tiltRig.rotation.order = "XYZ";
+        tiltRig.rotation.z = EARTH_OBLIQUITY * DEG; // 先绕 Z 倾
+        // 再把倾倒方向旋到夏至太阳方位（见下方 earthTiltBase）
+        tiltRig.add(spinNode);
+        group.add(tiltRig);
+
+        // 晨昏线示意环（垂直于日地连线，在 group 下每帧更新）
+        const term = new THREE.Mesh(
+          new THREE.TorusGeometry(1.05, 0.018, 8, 48),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 })
+        );
+        group.add(term);
+
+        // 阳光方向箭头（从太阳指向地球的反方向 = 日照）
+        const sunArr = new THREE.ArrowHelper(
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(0, 0, 0),
+          2.5,
+          0xffee88,
+          0.25,
+          0.15
+        );
+        group.add(sunArr);
+
+        group.userData.earth = {
+          tiltRig,
+          spinNode,
+          axisGroup,
+          equator: eq,
+          terminator: term,
+          sunArrow: sunArr,
+          mesh,
+        };
+      } else {
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(1, 48, 48),
+          new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.7, metalness: 0.1 })
+        );
+        mesh.userData.bodyId = p.id;
+        mesh.userData.kind = "planet";
+        group.add(mesh);
+      }
+
+      planetMeshes[p.id] = mesh;
+
+      const label = makeLabel(p.name);
+      group.add(label);
+
+      const orbitLine = addOrbitLine(elements, p.color, scene);
+      if (p.id === "earth") {
+        orbitLine.material.opacity = 0.75;
+        orbitLine.material.color.set(0x5ec8ff);
+      }
+
+      const V = volumeKm3(p.R_km);
+      bodies.push({
+        kind: "planet",
+        id: p.id,
+        name: p.name,
+        mesh,
+        label,
+        group,
+        elements,
+        orbitLine,
+        raw: p,
+        R_km: p.R_km,
+        V_km3: V,
+      });
+    }
+
+    // —— 地球四季：节气标记（固定在黄道轨道上）——
+    const earthBody = bodies.find((b) => b.id === "earth");
+    const seasonMarkers = [];
+    {
+      const el = earthBody.elements;
+      for (const s of SEASON_MARKS) {
+        // 该日序对应的平近点角推进
+        const days = s.doy;
+        const pos = keplerPosition(el, days);
+        const g = new THREE.Group();
+        g.position.copy(pos);
+        const ball = new THREE.Mesh(
+          new THREE.SphereGeometry(0.35, 16, 16),
+          new THREE.MeshBasicMaterial({ color: s.color })
+        );
+        g.add(ball);
+        const lab = makeLabel(`${s.emoji} ${s.name}`);
+        lab.position.y = 0.9;
+        lab.scale.multiplyScalar(1.15);
+        g.add(lab);
+        // 连到太阳的虚线感
+        const lineGeom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          pos.clone().multiplyScalar(-1), // local: 从标记指向太阳
+        ]);
+        // 标记在 pos，太阳在原点 → 向太阳方向 = -pos in world; in local = -pos
+        lineGeom.setFromPoints([new THREE.Vector3(0, 0, 0), pos.clone().negate()]);
+        const ray = new THREE.Line(
+          lineGeom,
+          new THREE.LineBasicMaterial({ color: s.color, transparent: true, opacity: 0.25 })
+        );
+        // ray should be in scene from origin to pos - better as scene child
+        scene.add(ray);
+        ray.userData.isSeasonRay = true;
+        // rebuild ray as from 0 to pos
+        ray.geometry.dispose();
+        ray.geometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          pos.clone(),
+        ]);
+
+        scene.add(g);
+        seasonMarkers.push({ ...s, group: g, label: lab, ray, pos0: pos.clone() });
+      }
+    }
+
+    // 地轴惯性指向：使夏至位置时北极倾向太阳
+    // 夏至地球位置 → 太阳在 -pos_summer；北极应靠近 -pos_summer 方向在赤道面的投影
+    function alignEarthAxisTilt() {
+      const e = earthBody;
+      const ed = e.group.userData.earth;
+      if (!ed) return;
+      const posSum = keplerPosition(e.elements, SEASON_MARKS[1].doy); // 夏至
+      // 黄道面内「北极倾斜方位」= 从地球指向太阳 @ 夏至 = -posSum
+      const towardSun = posSum.clone().negate().normalize();
+      // tiltRig: 子节点 +Y 为自转轴。先 z 倾 23.44°，使 +Y 倒向 +X，再绕 Y 转到 towardSun
+      ed.tiltRig.rotation.set(0, 0, 0);
+      ed.tiltRig.rotation.z = EARTH_OBLIQUITY * DEG;
+      // 倾倒后北极在父系中的方向
+      const poleLocal = new THREE.Vector3(0, 1, 0).applyEuler(ed.tiltRig.rotation);
+      // 需要把 pole 的水平投影转到 towardSun 的水平投影
+      const poleH = new THREE.Vector3(poleLocal.x, 0, poleLocal.z).normalize();
+      const sunH = new THREE.Vector3(towardSun.x, 0, towardSun.z).normalize();
+      if (poleH.lengthSq() > 0.01 && sunH.lengthSq() > 0.01) {
+        const ang = Math.atan2(sunH.x, sunH.z) - Math.atan2(poleH.x, poleH.z);
+        ed.tiltRig.rotation.y = ang;
+      }
+      // 缓存世界系北极方向（单位），随 group 平移但不额外转（tilt 相对惯性）
+      e._poleLocal = new THREE.Vector3(0, 1, 0);
+    }
+    alignEarthAxisTilt();
+
+    function dayOfYear(simD) {
+      const P = earthBody.elements.period;
+      let d = simD % P;
+      if (d < 0) d += P;
+      return d;
+    }
+
+    function getNorthSeason(doy) {
+      // 以北半球为准
+      const marks = SEASON_MARKS;
+      // 春分→夏至 春，夏至→秋分 夏，秋分→冬至 秋，冬至→春分 冬
+      const sp = marks[0].doy, su = marks[1].doy, au = marks[2].doy, wi = marks[3].doy;
+      if (doy >= sp && doy < su) return { id: "spring", name: "春季", mark: "春分→夏至", color: "#7dffa0" };
+      if (doy >= su && doy < au) return { id: "summer", name: "夏季", mark: "夏至→秋分", color: "#ffd36a" };
+      if (doy >= au && doy < wi) return { id: "autumn", name: "秋季", mark: "秋分→冬至", color: "#ff9a5c" };
+      return { id: "winter", name: "冬季", mark: "冬至→春分", color: "#8ec8ff" };
+    }
+
+    function solarDeclinationDeg(earthPos, poleWorld) {
+      // 太阳相对赤道的赤纬：sin δ = cos(ε) 近似用日地方向与赤道面
+      // δ = 90° - angle(sunDir, pole) → sin δ = dot(sunDir, pole)
+      const sunDir = earthPos.clone().negate().normalize(); // 地球看太阳
+      const s = THREE.MathUtils.clamp(sunDir.dot(poleWorld.clone().normalize()), -1, 1);
+      return (Math.asin(s) * 180) / Math.PI;
+    }
+
+    function updateEarthSeasons(dt) {
+      const e = earthBody;
+      const ed = e.group.userData.earth;
+      if (!ed) return;
+      const seasonsOn = document.getElementById("seasonsOn").checked;
+      const spinMul = Number(document.getElementById("spinMul").value);
+
+      // 可见性
+      ed.axisGroup.visible = seasonsOn;
+      ed.equator.visible = seasonsOn;
+      ed.terminator.visible = seasonsOn;
+      ed.sunArrow.visible = seasonsOn;
+      for (const m of seasonMarkers) {
+        m.group.visible = seasonsOn;
+        m.ray.visible = seasonsOn;
+        m.label.visible = seasonsOn && document.getElementById("labels").checked;
+      }
+      document.getElementById("seasonHud").style.display = seasonsOn ? "block" : "none";
+
+      // 自转：恒星日
+      const spinRate = ((2 * Math.PI) / EARTH_SIDEREAL_DAY) * (0.15 + spinMul * 0.08); // rad / sim-day 再乘仿真
+      // dt_sim ≈ 由外部 simDays 增量更准
+      ed.spinNode.rotation.y += spinRate * dt * (Number(document.getElementById("speed").value) * 0.5) * 0.02
+        + spinRate * 0.002 * spinMul * dt * 60;
+
+      // 北极世界方向
+      const poleWorld = new THREE.Vector3(0, 1, 0)
+        .applyQuaternion(ed.spinNode.getWorldQuaternion(new THREE.Quaternion()))
+        .normalize();
+      // 更稳：只用 tiltRig 的轴（不含自转）
+      const poleAxis = new THREE.Vector3(0, 1, 0)
+        .applyQuaternion(ed.tiltRig.getWorldQuaternion(new THREE.Quaternion()))
+        .normalize();
+
+      const earthPos = e.group.position.clone();
+      const r_au = earthPos.length() / PLANET_SCALE;
+      const sunDir = earthPos.clone().negate().normalize(); // 指向太阳
+
+      // 晨昏线：圆环法线 = 日地方向
+      ed.terminator.lookAt(ed.terminator.position.clone().add(sunDir));
+      // torus 默认在 XY，lookAt 使 Z 对齐
+      ed.terminator.rotateX(Math.PI / 2);
+
+      // 日照箭头（从日侧指入）
+      ed.sunArrow.position.copy(sunDir.clone().multiplyScalar(2.2));
+      ed.sunArrow.setDirection(sunDir.clone().negate()); // 光传播方向：太阳→地球
+      ed.sunArrow.setLength(Math.max(1.8, e.sceneR ? e.sceneR * 3 : 2.2), 0.3, 0.18);
+
+      // 北半球倾日程度
+      const dec = solarDeclinationDeg(earthPos, poleAxis);
+      const doy = dayOfYear(simDays);
+      const season = getNorthSeason(doy);
+
+      // 节气高亮：当前最近
+      let nearest = seasonMarkers[0];
+      let best = 1e9;
+      for (const m of seasonMarkers) {
+        let dd = Math.abs(doy - m.doy);
+        dd = Math.min(dd, earthBody.elements.period - dd);
+        if (dd < best) { best = dd; nearest = m; }
+        const scale = dd < 8 ? 1.35 : 1;
+        m.group.scale.setScalar(scale);
+        m.ray.material.opacity = dd < 12 ? 0.55 : 0.18;
+      }
+
+      // 地表受光：用 emissive 模拟向日面
+      const facing = THREE.MathUtils.clamp(-dec / EARTH_OBLIQUITY, -1, 1); // 示意
+      if (e.mesh.material && e.mesh.material.emissive) {
+        e.mesh.material.emissive.setRGB(0.05 + 0.08 * Math.max(0, -facing), 0.05, 0.02);
+      }
+
+      // HUD
+      const hud = document.getElementById("seasonHud");
+      hud.className = season.id;
+      document.getElementById("seasonName").textContent = season.name;
+      const rKm = r_au * AU_KM;
+      document.getElementById("seasonMeta").innerHTML = `
+        日序 ≈ <code>${doy.toFixed(1)}</code> / 365.256 天
+        · 靠近 <code>${nearest.name}</code><br/>
+        日心距 r ≈ <code>${r_au.toFixed(6)} AU</code>（${(rKm / 1e6).toFixed(2)}×10⁶ km）<br/>
+        太阳赤纬 δ ≈ <code>${dec.toFixed(2)}°</code>
+        （黄赤交角 ε=<code>${EARTH_OBLIQUITY.toFixed(2)}°</code>）<br/>
+        北半球：<code>${season.mark}</code>
+        · 南半球季节相反
+      `;
+      const bar = document.getElementById("seasonBar");
+      // 进度：在四季中的位置
+      const order = { spring: 0, summer: 1, autumn: 2, winter: 3 }[season.id];
+      const nextDoy = season.id === "spring" ? SEASON_MARKS[1].doy
+        : season.id === "summer" ? SEASON_MARKS[2].doy
+        : season.id === "autumn" ? SEASON_MARKS[3].doy
+        : SEASON_MARKS[0].doy + earthBody.elements.period;
+      const startDoy = season.id === "winter" && doy < SEASON_MARKS[0].doy
+        ? SEASON_MARKS[3].doy - earthBody.elements.period
+        : SEASON_MARKS[{ spring: 0, summer: 1, autumn: 2, winter: 3 }[season.id]].doy;
+      let frac = (doy - startDoy) / (nextDoy - startDoy);
+      frac = Math.min(1, Math.max(0, frac));
+      bar.style.width = `${(order + frac) * 25}%`;
+      bar.style.background = `linear-gradient(90deg, #7dffa0, #ffd36a, #ff9a5c, #8ec8ff)`;
+
+      e._season = season;
+      e._declination = dec;
+      e._doy = doy;
+      e._r_au = r_au;
+    }
+
+    // 卫星（球体示意；轨道 a 随母星真实半径比例重算）
+    for (const m of MOONS) {
+      const parentGroup = parentGroups[m.parent];
+      if (!parentGroup) continue;
+      const parentPlanet = PLANETS.find((x) => x.id === m.parent);
+
+      const elements = {
+        a: 1,
+        e: m.e,
+        i: m.i_deg * DEG,
+        Ω: (m.Ω ?? 0) * DEG,
+        ω: (m.ω ?? 0) * DEG,
+        period: m.period_d,
+        M0: (m.M0 ?? 0) * DEG,
+        a_km_true: m.a_km,
+      };
+
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 20, 20),
+        new THREE.MeshStandardMaterial({ color: m.color, roughness: 0.75 })
+      );
+      mesh.userData.bodyId = m.name;
+      mesh.userData.kind = "moon";
+      parentGroup.add(mesh);
+
+      const label = makeLabel(m.name.split(" ")[0]);
+      label.scale.multiplyScalar(0.65);
+      parentGroup.add(label);
+
+      const orbitLine = addOrbitLine(elements, m.color, parentGroup);
+
+      const body = {
+        kind: "moon",
+        id: m.name,
+        name: m.name,
+        parent: m.parent,
+        parentName: parentPlanet?.name,
+        parentR_km: parentPlanet.R_km,
+        mesh,
+        label,
+        elements,
+        orbitLine,
+        raw: m,
+        // 示意半径：相对母星的粗略真实比（仅显示用，非严格要求）
+        rFracOfParent: Math.min(0.35, Math.max(0.02, (m.r_km || 500) / parentPlanet.R_km)),
+      };
+      bodies.push(body);
+      moonBodies.push(body);
+    }
+
+    // 土星环：相对土星半径（A 环外缘 ~136780 km ≈ 2.35 R_S）
+    {
+      const sat = planetMeshes.saturn;
+      saturnRing = new THREE.Mesh(
+        new THREE.RingGeometry(1.2, 2.35, 96),
+        new THREE.MeshBasicMaterial({ color: 0xc9b896, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+      );
+      saturnRing.rotation.x = Math.PI / 2.15;
+      sat.add(saturnRing);
+    }
+
+    /**
+     * 彗核 / 彗发 / 双尾（细化模型）
+     *
+     * 核体积：V = 4/3 π R_eq³，R_eq 来自实测/文献等效半径（km）
+     * 彗发：光学有效半径 ~ 10⁴–10⁶ km，∝ √Q 量级（产率）
+     * 离子尾 Type I：多股细丝，几乎反日，略有太阳风像差（反速度分量很小）
+     * 尘埃尾 Type II：多条 syndyne（不同 β=F_rad/F_grav），沿轨道滞后弯曲
+     * 产率 Q：水冰区 r≲2.5 AU 用 r^{-2.15}，更外 CO 等缓降，>5 AU 近熄
+     */
+    const TAIL_SEGS = 64;
+    const ION_FILAMENTS = 5;
+    // 尘埃 β（辐射压/引力）：大 β → 更直更靠反日；小 β → 更贴轨道
+    const DUST_BETAS = [
+      { β: 0.05, color: 0xc4a882, opacity: 0.22, w: 1.35 },
+      { β: 0.2, color: 0xe8c898, opacity: 0.32, w: 1.0 },
+      { β: 0.55, color: 0xffe0a8, opacity: 0.28, w: 0.7 },
+      { β: 1.1, color: 0xfff0c8, opacity: 0.18, w: 0.45 },
+    ];
+
+    function makeRibbon(nSeg, color, opacity) {
+      const positions = new Float32Array(nSeg * 3 * 3);
+      const colors = new Float32Array(nSeg * 3 * 3);
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      const idx = [];
+      for (let i = 0; i < nSeg - 1; i++) {
+        const a = i * 3, b = a + 1, c0 = a + 2;
+        const d = (i + 1) * 3, e = d + 1, f = d + 2;
+        idx.push(a, d, b, b, d, e, b, e, c0, c0, e, f);
+      }
+      geom.setIndex(idx);
+      const mat = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.frustumCulled = false;
+      mesh.userData.baseColor = new THREE.Color(color);
+      return mesh;
+    }
+
+    function writeRibbonSpine(mesh, spine, halfW0, halfW1, alphaAlong) {
+      const pos = mesh.geometry.attributes.position.array;
+      const col = mesh.geometry.attributes.color.array;
+      const n = TAIL_SEGS;
+      const base = mesh.userData.baseColor;
+      if (!spine || spine.length < 2) return;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const fi = t * (spine.length - 1);
+        const i0 = Math.floor(fi);
+        const i1 = Math.min(spine.length - 1, i0 + 1);
+        const f = fi - i0;
+        const center = spine[i0].clone().lerp(spine[i1], f);
+        let dir;
+        if (i1 > i0) dir = spine[i1].clone().sub(spine[i0]);
+        else if (i0 > 0) dir = spine[i0].clone().sub(spine[i0 - 1]);
+        else dir = new THREE.Vector3(0, 1, 0);
+        if (dir.lengthSq() < 1e-16) dir.set(0, 1, 0);
+        dir.normalize();
+        const up = Math.abs(dir.dot(new THREE.Vector3(0, 1, 0))) > 0.92
+          ? new THREE.Vector3(1, 0, 0)
+          : new THREE.Vector3(0, 1, 0);
+        const side = new THREE.Vector3().crossVectors(dir, up).normalize();
+        // 根粗尾尖 + 边缘羽化
+        const envelope = Math.pow(1 - t, 0.85) * (0.55 + 0.45 * Math.sin(Math.PI * Math.min(t * 1.2, 1)));
+        const hw = (halfW0 * (1 - t) + halfW1 * t) * Math.max(0.04, envelope);
+        const pL = center.clone().addScaledVector(side, -hw);
+        const pC = center;
+        const pR = center.clone().addScaledVector(side, hw);
+        const basei = i * 9;
+        pos[basei] = pL.x; pos[basei + 1] = pL.y; pos[basei + 2] = pL.z;
+        pos[basei + 3] = pC.x; pos[basei + 4] = pC.y; pos[basei + 5] = pC.z;
+        pos[basei + 6] = pR.x; pos[basei + 7] = pR.y; pos[basei + 8] = pR.z;
+        const a = (alphaAlong ? alphaAlong(t) : Math.pow(1 - t, 1.35));
+        for (let k = 0; k < 3; k++) {
+          const edge = k === 1 ? 1 : 0.35;
+          const o = basei + k * 3;
+          col[o] = base.r * a * edge;
+          col[o + 1] = base.g * a * edge;
+          col[o + 2] = base.b * a * edge;
+        }
+      }
+      mesh.geometry.attributes.position.needsUpdate = true;
+      mesh.geometry.attributes.color.needsUpdate = true;
+      mesh.geometry.computeBoundingSphere();
+    }
+
+    /** 水冰升华产率归一化 Q(r) / Q(1AU) */
+    function waterProduction(r_au) {
+      const r = Math.max(r_au, 0.08);
+      // 经验：内区 ~ r^{-2.15}；2.5–5 AU 快速衰减；更外 CO 弱活动
+      if (r < 2.5) return Math.pow(r, -2.15);
+      if (r < 5.0) {
+        const q25 = Math.pow(2.5, -2.15);
+        return q25 * Math.exp(-2.8 * (r - 2.5));
+      }
+      if (r < 12) return 0.012 * Math.pow(r / 5, -1.2);
+      return 0;
+    }
+
+    /** 彗发有效半径 (km) — 粗用 r_coma ~ k √Q，上限 ~1e6 km */
+    function comaRadiusKm(Q, Q_scale) {
+      const q = Q * Q_scale;
+      if (q < 1e-4) return 0;
+      // 1 AU、Q=1 时约 ~5e4 km 量级
+      return Math.min(1.2e6, 4.5e4 * Math.sqrt(q) * (0.6 + 0.4 * Math.min(q, 10) / 10));
+    }
+
+    /**
+     * 离子尾长度 (AU)：典型可达 ~0.5–1+ AU（近日点）
+     * 尘埃主尾较短、更宽
+     */
+    function ionTailLengthAu(Q, Q_scale, r_au) {
+      const q = Q * Q_scale;
+      if (q < 0.02) return 0;
+      // 与 1/r 辐射环境相关，限制最大 ~1.8 AU（演示可辨）
+      return Math.min(1.8, 0.35 * Math.pow(q, 0.45) * Math.pow(Math.max(r_au, 0.2), -0.35));
+    }
+    function dustTailLengthAu(Q, Q_scale, r_au) {
+      const q = Q * Q_scale;
+      if (q < 0.02) return 0;
+      return Math.min(1.1, 0.22 * Math.pow(q, 0.4) * Math.pow(Math.max(r_au, 0.2), -0.25));
+    }
+
+    function nucleusSceneRadius(R_eq_km, sizeMul, trueAu) {
+      const rTrue = R_eq_km * KM_TO_SCENE;
+      if (trueAu) return rTrue;
+      // 与行星同一放大体系：按相对地球半径
+      let r = (R_eq_km / EARTH_R_KM) * EARTH_SCENE_BASE * sizeMul;
+      // 核极小：给一个可辨识但远小于行星的上限
+      const cap = 0.12;
+      return Math.min(Math.max(r, rTrue), cap);
+    }
+
+    // —— 创建彗星网格 ——
+    for (const c of COMETS) {
+      const elements = {
+        a: c.a_au * PLANET_SCALE,
+        e: c.e,
+        i: c.i_deg * DEG,
+        Ω: c.Ω * DEG,
+        ω: c.ω * DEG,
+        period: c.period_d,
+        M0: c.M0 * DEG,
+      };
+
+      // 核：暗低反照率椭球（单位球后按 abc 比例拉伸）
+      const [ax, ay, az] = c.nucleus_abc_km;
+      const aMax = Math.max(ax, ay, az);
+      const nucleus = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 28, 20),
+        new THREE.MeshStandardMaterial({
+          color: 0x2a241c,
+          roughness: 0.95,
+          metalness: 0.05,
+          emissive: 0x1a1510,
+          emissiveIntensity: 0.15,
+        })
+      );
+      nucleus.userData.bodyId = c.id;
+      nucleus.userData.kind = "comet";
+      nucleus.userData.axisScale = new THREE.Vector3(ax / aMax, ay / aMax, az / aMax);
+      scene.add(nucleus);
+
+      // 拾取辅助（半透明稍大）
+      const pick = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 12, 12),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      pick.userData.bodyId = c.id;
+      pick.userData.kind = "comet";
+      scene.add(pick);
+
+      // 双层彗发
+      const comaInner = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 32, 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xc8e8ff,
+          transparent: true,
+          opacity: 0.2,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      const comaOuter = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 28, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0x6a9ccc,
+          transparent: true,
+          opacity: 0.08,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      scene.add(comaInner);
+      scene.add(comaOuter);
+
+      // 离子尾：中心带 + 多细丝
+      const ionCore = makeRibbon(TAIL_SEGS, 0x7ec8ff, 0.55);
+      const ionFilaments = [];
+      for (let f = 0; f < ION_FILAMENTS; f++) {
+        const fil = makeRibbon(TAIL_SEGS, f % 2 === 0 ? 0x5aadee : 0x9ad8ff, 0.35);
+        scene.add(fil);
+        ionFilaments.push(fil);
+      }
+      scene.add(ionCore);
+
+      // 尘埃 syndyne 多条
+      const dustRibbons = DUST_BETAS.map((d) => {
+        const m = makeRibbon(TAIL_SEGS, d.color, d.opacity);
+        scene.add(m);
+        return { mesh: m, ...d };
+      });
+
+      const label = makeLabel(c.name.split(" ")[0]);
+      scene.add(label);
+
+      const orbitLine = addOrbitLine(elements, c.color, scene, 800);
+      orbitLine.material.opacity = 0.42;
+
+      const V_km3 = volumeKm3(c.R_eq_km);
+
+      bodies.push({
+        kind: "comet",
+        id: c.id,
+        name: c.name,
+        mesh: nucleus,
+        pick,
+        coma: comaInner,
+        comaOuter,
+        label,
+        ionCore,
+        ionFilaments,
+        dustRibbons,
+        ionTail: ionCore,
+        dustTail: dustRibbons[0].mesh,
+        elements,
+        orbitLine,
+        raw: c,
+        R_eq_km: c.R_eq_km,
+        V_km3,
+        sceneR: 0.05,
+        vel: new THREE.Vector3(),
+      });
+    }
+
+    function updateCometTails(b, pos, days) {
+      const dStep = Math.max(0.08, Math.min(1.5, b.elements.period * 1.5e-5));
+      const pFwd = keplerPosition(b.elements, days + dStep);
+      b.vel.copy(pFwd).sub(pos).multiplyScalar(1 / dStep);
+      const speed = b.vel.length();
+      const vHat = speed > 1e-12 ? b.vel.clone().normalize() : new THREE.Vector3(1, 0, 0);
+
+      const r_au = pos.length() / PLANET_SCALE;
+      const Q = waterProduction(r_au);
+      const Qs = b.raw.Q_scale || 1;
+      const qEff = Q * Qs;
+
+      // 反日单位向量（从太阳指向外 = 核位置方向）
+      const rHat = pos.clone().normalize();
+      // 离子尾像差：太阳风 ≈ 400 km/s >> 彗星轨道速度，几乎反日；
+      // 略混入 -v 以产生可见的小弯折（数度级）
+      const ionDir = rHat.clone().multiplyScalar(1).addScaledVector(vHat, -0.04).normalize();
+
+      const L_ion_au = ionTailLengthAu(Q, Qs, r_au);
+      const L_dust_au = dustTailLengthAu(Q, Qs, r_au);
+      const L_ion = L_ion_au * PLANET_SCALE;
+      const active = cometsOnEl.checked && qEff > 0.015;
+
+      // —— 核尺寸（真实体积比例；可选与行星同步放大）——
+      const mul = Number(sizeMulEl.value);
+      const trueAu = trueAuEl.checked;
+      const rNuc = nucleusSceneRadius(b.R_eq_km, mul, trueAu);
+      const axis = b.mesh.userData.axisScale;
+      // 显示下限仅用于拾取可见性（真体积信息用 R_eq）
+      const rDraw = trueAu ? Math.max(rNuc, 0.012) : Math.max(rNuc, 0.02);
+      b.mesh.scale.set(rDraw * axis.x, rDraw * axis.y, rDraw * axis.z);
+      b.mesh.position.copy(pos);
+      // 核自转示意
+      b.mesh.rotation.y += 0.01;
+      b.pick.position.copy(pos);
+      b.pick.scale.setScalar(Math.max(rDraw * 3, 0.15));
+      b.sceneR = rDraw;
+      b.label.position.set(pos.x, pos.y + rDraw + 0.35, pos.z);
+
+      // —— 彗发（物理 km → 场景；再给最低可见）——
+      const comaKm = comaRadiusKm(Q, Qs);
+      const comaScene = Math.max(comaKm * KM_TO_SCENE, active ? 0.08 : 0);
+      // 与核对比：彗发应 ≫ 核
+      const comaVis = Math.max(comaScene, rDraw * 8, active ? 0.15 * Math.sqrt(Math.min(qEff, 20)) : 0);
+      b.coma.visible = cometsOnEl.checked && comaVis > 0.02;
+      b.comaOuter.visible = b.coma.visible;
+      if (b.coma.visible) {
+        b.coma.position.copy(pos);
+        b.comaOuter.position.copy(pos);
+        b.coma.scale.setScalar(comaVis);
+        b.comaOuter.scale.setScalar(comaVis * 2.4);
+        b.coma.material.opacity = Math.min(0.32, 0.06 + 0.04 * Math.sqrt(qEff));
+        b.comaOuter.material.opacity = Math.min(0.14, 0.03 + 0.015 * Math.sqrt(qEff));
+      }
+
+      // 可见性
+      for (const fil of b.ionFilaments) fil.visible = active && L_ion_au > 0.01;
+      b.ionCore.visible = active && L_ion_au > 0.01;
+      for (const d of b.dustRibbons) d.mesh.visible = active && L_dust_au > 0.008;
+
+      if (active && L_ion_au > 0.01) {
+        // 离子主脊
+        const ionSpine = [];
+        for (let i = 0; i < TAIL_SEGS; i++) {
+          const t = i / (TAIL_SEGS - 1);
+          // 轻微正弦摆动模拟断开/射线结构
+          const wiggle = Math.sin(t * 9.0 + days * 0.02) * 0.012 * t * L_ion;
+          const side = new THREE.Vector3().crossVectors(ionDir, vHat);
+          if (side.lengthSq() < 1e-12) side.set(0, 1, 0);
+          side.normalize();
+          ionSpine.push(
+            pos.clone()
+              .addScaledVector(ionDir, t * L_ion)
+              .addScaledVector(side, wiggle)
+          );
+        }
+        const wIon = (0.02 + 0.09 * Math.min(Math.sqrt(qEff), 4)) * PLANET_SCALE * 0.05;
+        writeRibbonSpine(b.ionCore, ionSpine, wIon * 0.9, wIon * 2.2, (t) => Math.pow(1 - t, 1.1));
+        b.ionCore.material.opacity = Math.min(0.7, 0.25 + 0.08 * Math.sqrt(qEff));
+
+        // 细丝：绕主轴小角度散开
+        for (let f = 0; f < b.ionFilaments.length; f++) {
+          const ang = ((f / (b.ionFilaments.length - 1 || 1)) - 0.5) * 0.14; // ±数度
+          const side = new THREE.Vector3().crossVectors(ionDir, vHat).normalize();
+          if (side.lengthSq() < 0.5) side.set(0, 1, 0).cross(ionDir).normalize();
+          const filDir = ionDir.clone().addScaledVector(side, ang).addScaledVector(vHat, -0.02 * f).normalize();
+          const spine = [];
+          const Lf = L_ion * (0.75 + 0.25 * (1 - Math.abs(ang) * 4));
+          for (let i = 0; i < TAIL_SEGS; i++) {
+            const t = i / (TAIL_SEGS - 1);
+            const wig = Math.sin(t * 11 + f * 1.7 + days * 0.03) * 0.02 * t * Lf;
+            const s2 = new THREE.Vector3().crossVectors(filDir, side).normalize();
+            spine.push(pos.clone().addScaledVector(filDir, t * Lf).addScaledVector(s2, wig));
+          }
+          writeRibbonSpine(
+            b.ionFilaments[f],
+            spine,
+            wIon * 0.25,
+            wIon * 0.9,
+            (t) => Math.pow(1 - t, 1.4) * 0.85
+          );
+          b.ionFilaments[f].material.opacity = Math.min(0.5, 0.12 + 0.05 * Math.sqrt(qEff));
+        }
+      }
+
+      // 尘埃 syndyne：释放后受 (1-β) 有效引力 —— 简化为
+      // 位置 = 过去轨道点 + β * 积分反日位移（∝ age² 的辐射压漂移）
+      if (active && L_dust_au > 0.008) {
+        // 回溯：尘埃可见年龄数天–数十天
+        const lookback = Math.min(90, 12 + 55 * Math.min(Math.sqrt(qEff), 5));
+        for (const d of b.dustRibbons) {
+          const spine = [];
+          const Lmax = L_dust_au * PLANET_SCALE * (0.55 + 0.55 * Math.min(d.β, 1.2));
+          for (let i = 0; i < TAIL_SEGS; i++) {
+            const t = i / (TAIL_SEGS - 1);
+            const age = t * lookback; // days
+            const past = keplerPosition(b.elements, days - age);
+            const rad = past.lengthSq() > 1e-14 ? past.clone().normalize() : rHat;
+            // 辐射压位移：∝ β * age²（示意）；并随 1/r² 在释放点增强
+            const rRel = past.length() / PLANET_SCALE;
+            const push =
+              d.β * (age / lookback) * (age / lookback) * Lmax *
+              (0.7 + 0.5 / Math.max(rRel, 0.3));
+            // 小 β 更贴轨道：混合 past 与反日
+            const blend = Math.min(1, d.β * 0.85);
+            const alongOrbit = past.clone().lerp(pos, Math.pow(1 - t, 1.6) * 0.15);
+            const p = alongOrbit.addScaledVector(rad, push * blend);
+            // 极小 β：几乎留在轨道弧上
+            if (d.β < 0.1) {
+              p.copy(past).addScaledVector(rad, push * 0.35);
+            }
+            spine.push(p);
+          }
+          spine[0] = pos.clone();
+          const w0 = (0.03 + 0.12 * d.w * Math.min(Math.sqrt(qEff), 4)) * PLANET_SCALE * 0.04;
+          writeRibbonSpine(d.mesh, spine, w0 * 1.1, w0 * 2.8 * d.w, (t) => Math.pow(1 - t, 1.25));
+          d.mesh.material.opacity = Math.min(0.55, d.opacity * (0.5 + 0.5 * Math.min(Math.sqrt(qEff), 3)));
+        }
+      }
+
+      b._r_au = r_au;
+      b._Q = Q;
+      b._qEff = qEff;
+      b._activity = qEff;
+      b._tailLen_au = L_ion_au;
+      b._dustLen_au = L_dust_au;
+      b._coma_km = comaKm;
+    }
+
+    const sizeMulEl = document.getElementById("sizeMul");
+    const trueAuEl = document.getElementById("trueAuSize");
+    const cometsOnEl = document.getElementById("cometsOn");
+
+    function applyBodySizes() {
+      const mul = Number(sizeMulEl.value);
+      const trueAu = trueAuEl.checked;
+
+      // 太阳：永远 = 真实 R☉ / AU 比例（场景中 ≈ 0.130 单位）
+      const rSun = sunSceneRadius();
+      sun.scale.setScalar(rSun);
+      sunGlow.scale.setScalar(rSun * 1.8);
+      sunLabel.position.set(0, rSun * 1.3 + 0.25, 0);
+
+      // 调试断言：太阳必须远小于金星近日点
+      // Venus q ≈ 0.718 AU → 场景 20.1；R☉ 场景 0.13
+      for (const b of bodies) {
+        if (b.kind !== "planet") continue;
+        const rPhys = planetSceneRadius(b.R_km, mul, trueAu);
+        // 真 AU 尺度下行星极小：保留物理 scale，并用最低显示尺寸以免看不见（标注为「显示下限」）
+        // 地球在四季模式中需要看清转轴：给更大显示下限
+        const minDraw = b.id === "earth" ? (trueAu ? 0.55 : 0.45) : (trueAu ? 0.05 : 0.04);
+        const rDraw = Math.max(rPhys, minDraw);
+        const ed = b.group.userData.earth;
+        if (ed) {
+          // 缩放整个倾斜+自转节点，保持轴/赤道/地表一致
+          ed.tiltRig.scale.setScalar(rDraw);
+          ed.terminator.scale.setScalar(rDraw);
+        } else {
+          b.mesh.scale.setScalar(rDraw);
+        }
+        b.R_phys_scene = rPhys;
+        b.label.position.set(0, rDraw * 1.25 + 0.35, 0);
+        b.sceneR = rDraw;
+      }
+
+      for (const m of moonBodies) {
+        const parent = bodies.find((x) => x.kind === "planet" && x.id === m.parent);
+        const pR = parent?.sceneR || 0.5;
+        m.elements.a = moonOrbitSceneA(m.elements.a_km_true, pR, m.parentR_km);
+        const boost = {
+          "月球": 0.27, "木卫三 Ganymede": 0.22, "土卫六 Titan": 0.22, "木卫四 Callisto": 0.2,
+          "木卫一 Io": 0.16, "木卫二 Europa": 0.14, "海卫一 Triton": 0.18,
+        }[m.name] || 0.1;
+        m.mesh.scale.setScalar(Math.max(0.03, pR * boost));
+        m.moonSceneR = m.mesh.scale.x;
+        rebuildOrbitLine(m.orbitLine, m.elements);
+      }
+
+      for (const b of bodies) {
+        if (b.kind !== "comet") continue;
+        const on = cometsOnEl.checked;
+        b.mesh.visible = on;
+        if (b.pick) b.pick.visible = on;
+        if (b.label) b.label.visible = on && document.getElementById("labels").checked;
+        if (b.orbitLine) b.orbitLine.visible = on && document.getElementById("trails").checked;
+        if (b.ionCore) b.ionCore.visible = on;
+        if (b.ionFilaments) for (const f of b.ionFilaments) f.visible = on;
+        if (b.dustRibbons) for (const d of b.dustRibbons) d.mesh.visible = on;
+        if (b.coma) b.coma.visible = on;
+        if (b.comaOuter) b.comaOuter.visible = on;
+      }
+    }
+
+    // 太阳点击信息
+    bodies.push({
+      kind: "star",
+      id: "sun",
+      name: "太阳",
+      mesh: sun,
+      label: sunLabel,
+      R_km: SUN_R_KM,
+      V_km3: volumeKm3(SUN_R_KM),
+      raw: { name: "太阳", R_km: SUN_R_KM },
+    });
+
+    applyBodySizes();
+    sizeMulEl.addEventListener("input", applyBodySizes);
+    trueAuEl.addEventListener("change", applyBodySizes);
+    cometsOnEl.addEventListener("change", applyBodySizes);
+
+    // UI
+    const speedEl = document.getElementById("speed");
+    const trailsEl = document.getElementById("trails");
+    const labelsEl = document.getElementById("labels");
+    const focusEl = document.getElementById("focus");
+    const infoEl = document.getElementById("info");
+    document.getElementById("resetCam").onclick = () => {
+      focusEl.value = "sun";
+      camera.position.set(35, 22, 48);
+      controls.target.set(0, 0, 0);
+    };
+
+    // 将仿真时间设到所选（或默认哈雷）彗星的近日点：M≈0
+    document.getElementById("perihelion").onclick = () => {
+      let id = focusEl.value;
+      if (id !== "halley" && id !== "halebopp") id = "halley";
+      const b = bodies.find((x) => x.kind === "comet" && x.id === id);
+      if (!b) return;
+      // M = M0 + n*t ≡ 0 (mod 2π) → t = -M0/n
+      const n = (2 * Math.PI) / b.elements.period;
+      let t = -b.elements.M0 / n;
+      // 规范到 [0, P)
+      const P = b.elements.period;
+      t = ((t % P) + P) % P;
+      simDays = t;
+      focusEl.value = id;
+      // 拉近相机
+      const pos = keplerPosition(b.elements, simDays);
+      controls.target.copy(pos);
+      camera.position.copy(pos).add(new THREE.Vector3(8, 5, 10));
+      showInfo(b);
+    };
+
+    trailsEl.onchange = () => {
+      for (const b of bodies) {
+        if (!b.orbitLine) continue;
+        if (b.kind === "comet") b.orbitLine.visible = trailsEl.checked && cometsOnEl.checked;
+        else b.orbitLine.visible = trailsEl.checked;
+      }
+    };
+    labelsEl.onchange = () => {
+      for (const b of bodies) {
+        if (!b.label) continue;
+        if (b.kind === "comet") b.label.visible = labelsEl.checked && cometsOnEl.checked;
+        else b.label.visible = labelsEl.checked;
+      }
+    };
+
+    // 点击拾取
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      pointer.x = (ev.clientX / innerWidth) * 2 - 1;
+      pointer.y = -(ev.clientY / innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const meshes = [];
+      for (const b of bodies) {
+        if (b.mesh) meshes.push(b.mesh);
+        if (b.pick) meshes.push(b.pick);
+      }
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (!hits.length) return;
+      const mesh = hits[0].object;
+      const body = bodies.find((b) => b.mesh === mesh || b.pick === mesh);
+      if (!body) return;
+      showInfo(body);
+    });
+
+    function showInfo(body) {
+      if (body.kind === "star") {
+        const V = body.V_km3;
+        const rAu = SUN_R_AU;
+        infoEl.innerHTML = `
+          <strong>太阳</strong>（恒星 · NASA/IAU）<br/>
+          平均半径 R = <code>${SUN_R_KM.toLocaleString()} km</code>
+          = <code>${rAu.toFixed(8)} AU</code>
+          ≈ <code>${(SUN_R_KM / EARTH_R_KM).toFixed(2)} R⊕</code><br/>
+          体积 V = <code>${formatSci(V)} km³</code>
+          ≈ <code>${formatEarthVolumes(V)} V⊕</code><br/>
+          <span style="opacity:.75">太阳半径<strong>始终</strong>按 R☉/AU 真值绘制（场景中 ≈ ${sunSceneRadius().toFixed(4)} 单位），
+          金星近日点 ≈ 0.718 AU ≫ R☉，轨道不会穿入太阳。行星放大不改变太阳尺度。</span>`;
+        return;
+      }
+      if (body.kind === "planet") {
+        const p = body.raw;
+        const V = body.V_km3;
+        const rEarth = p.R_km / EARTH_R_KM;
+        if (p.id === "earth") {
+          const season = body._season;
+          const dec = body._declination;
+          const doy = body._doy;
+          const r_au = body._r_au;
+          infoEl.innerHTML = `
+            <strong>地球</strong> · 自转 + 公转与四季<br/>
+            <strong>自转</strong>：恒星日 <code>${EARTH_SIDEREAL_DAY} d</code>（约 23ʰ56ᵐ）；
+            自转轴相对黄道法向倾斜 <code>ε = ${EARTH_OBLIQUITY.toFixed(3)}°</code>（黄赤交角）。
+            轴在惯性空间指向近似不变（北天极 / 北极星附近）。<br/>
+            <strong>公转</strong>：a = <code>1 AU</code> · e = <code>${p.e}</code>
+            · P = <code>${p.period_d} d</code>；
+            近日点约 <code>1 月 3 日</code>（r 最小），远日点约 <code>7 月初</code>。<br/>
+            <strong>当前</strong>：日序 <code>${doy != null ? doy.toFixed(1) : "—"}</code>
+            · 北半球 <code>${season ? season.name : "—"}</code>
+            · 太阳赤纬 δ ≈ <code>${dec != null ? dec.toFixed(2) : "—"}°</code>
+            · r ≈ <code>${r_au != null ? r_au.toFixed(6) : "—"} AU</code><br/>
+            <span style="opacity:.85">
+              <b>春分</b>：δ≈0°，全球昼夜平分，北半球春始；
+              <b>夏至</b>：δ≈+23.44°，北半球白昼最长；
+              <b>秋分</b>：δ≈0°，北半球秋始；
+              <b>冬至</b>：δ≈−23.44°，北半球白昼最短。
+              南半球季节相反。四季主因是<strong>地轴倾斜</strong>，不是日地距离。
+            </span>`;
+          return;
+        }
+        infoEl.innerHTML = `
+          <strong>${p.name}</strong>（行星 · 绕太阳）<br/>
+          <strong>真实体积</strong>：平均半径 R = <code>${p.R_km.toLocaleString()} km</code>
+          ≈ <code>${rEarth.toFixed(4)} R⊕</code><br/>
+          V = ⁴⁄₃πR³ = <code>${formatSci(V)} km³</code>
+          ≈ <code>${formatEarthVolumes(V)} V⊕</code>
+          （地球 V⊕ = <code>${formatSci(volumeKm3(EARTH_R_KM))} km³</code>）<br/>
+          半长轴 a = <code>${p.a_au.toFixed(6)} AU</code> · e = <code>${p.e}</code>
+          · i = <code>${p.i_deg}°</code> · P = <code>${p.period_d.toLocaleString()} d</code><br/>
+          <span style="opacity:.75">球体半径按 R 严格等比绘制，行星间体积比精确为 (Rᵢ/Rⱼ)³。
+          ${trueAuEl.checked ? "当前：相对 AU 真实尺度。" : "当前：行星放大观看（太阳与轨道仍为 AU 真尺度）。"}</span>`;
+        return;
+      }
+      if (body.kind === "comet") {
+        const c = body.raw;
+        const r = body._r_au;
+        const Q = body._Q;
+        const qEff = body._qEff;
+        const L = body._tailLen_au;
+        const Ld = body._dustLen_au;
+        const comaKm = body._coma_km;
+        const abc = c.nucleus_abc_km;
+        const V = body.V_km3;
+        const Vearth = volumeKm3(EARTH_R_KM);
+        infoEl.innerHTML = `
+          <strong>${c.name}</strong>（彗星）<br/>
+          <strong>核体积</strong>：等效半径 R<sub>eq</sub> = <code>${c.R_eq_km.toFixed(2)} km</code>
+          ${abc ? `（椭球半轴 ≈ <code>${abc[0]}×${abc[1]}×${abc[2]} km</code>）` : ""}<br/>
+          V = ⁴⁄₃πR³ = <code>${formatSci(V)} km³</code>
+          ≈ <code>${(V / Vearth).toExponential(3)} V⊕</code>
+          · 反照率 ~ <code>${c.albedo}</code>（极暗）<br/>
+          轨道：a = <code>${c.a_au} AU</code> · e = <code>${c.e}</code>
+          · i = <code>${c.i_deg}°</code>${c.i_deg > 90 ? "（逆行）" : ""}
+          · q ≈ <code>${c.q_au.toFixed(3)} AU</code>
+          · P ≈ <code>${(c.period_d / 365.256).toFixed(1)} yr</code><br/>
+          <strong>当前状态</strong>：r ≈ <code>${r != null ? r.toFixed(3) : "—"} AU</code>
+          · 相对产率 Q(r) ≈ <code>${Q != null ? Q.toFixed(3) : "—"}</code>
+          · 有效 Q·s ≈ <code>${qEff != null ? qEff.toFixed(2) : "—"}</code><br/>
+          彗发半径 ≈ <code>${comaKm != null ? formatSci(comaKm, 3) : "—"} km</code>
+          · 离子尾 ≈ <code>${L != null ? L.toFixed(3) : "—"} AU</code>
+          · 尘埃尾 ≈ <code>${Ld != null ? Ld.toFixed(3) : "—"} AU</code><br/>
+          <span style="opacity:.75">
+            蓝多丝 = 离子尾 Type&nbsp;I（近反日 + 微像差）；
+            金黄多层 = 尘埃 Type&nbsp;II（β = 0.05/0.2/0.55/1.1 syndyne，贴轨道→反日）。
+            水冰产率 r&lt;2.5 AU 时 ∝ r<sup>−2.15</sup>。核体积按文献 R<sub>eq</sub>，比行星小 10¹⁰ 量级。
+            ${c.note || ""}
+          </span>`;
+        return;
+      }
+      const m = body.raw;
+      infoEl.innerHTML = `
+        <strong>${m.name}</strong>（卫星 · 绕 ${body.parentName}）<br/>
+        半长轴 a = <code>${m.a_km.toLocaleString()} km</code>
+        （约 <code>${(m.a_km / AU_KM).toExponential(3)} AU</code>）<br/>
+        偏心率 e = <code>${m.e}</code> · 倾角 i = <code>${m.i_deg}°</code><br/>
+        轨道周期 P = <code>${m.period_d} d</code>
+        · Ω ≈ <code>${m.Ω ?? 0}°</code> · ω ≈ <code>${m.ω ?? 0}°</code><br/>
+        <span style="opacity:.75">轨道 a/e/i/P 为真实参数；卫星球体大小为示意。</span>`;
+    }
+
+    // 时间（从春分附近开始，便于看四季）
+    let simDays = SEASON_MARKS[0].doy;
+    let last = performance.now();
+    let seasonJumpIdx = 0;
+
+    document.getElementById("jumpSeason").onclick = () => {
+      seasonJumpIdx = (seasonJumpIdx + 1) % SEASON_MARKS.length;
+      const s = SEASON_MARKS[seasonJumpIdx];
+      simDays = s.doy;
+      focusEl.value = "earth";
+      document.getElementById("seasonsOn").checked = true;
+      const pos = keplerPosition(earthBody.elements, simDays);
+      controls.target.copy(pos);
+      camera.position.copy(pos).add(new THREE.Vector3(6, 4, 7));
+      showInfo(earthBody);
+    };
+
+    // 默认相机看向地球
+    {
+      const pos = keplerPosition(earthBody.elements, simDays);
+      controls.target.copy(pos);
+      camera.position.copy(pos).add(new THREE.Vector3(8, 5, 9));
+    }
+
+    function setFocus() {
+      const v = focusEl.value;
+      if (v === "sun") {
+        controls.target.set(0, 0, 0);
+        return;
+      }
+      const b = bodies.find(
+        (x) => (x.kind === "planet" || x.kind === "comet") && x.id === v
+      );
+      if (b) {
+        const wp = new THREE.Vector3();
+        b.mesh.getWorldPosition(wp);
+        controls.target.copy(wp);
+      }
+    }
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const speed = Number(speedEl.value);
+      simDays += dt * speed * 0.5;
+
+      for (const b of bodies) {
+        if (b.kind === "planet") {
+          const pos = keplerPosition(b.elements, simDays);
+          b.group.position.copy(pos);
+        } else if (b.kind === "moon") {
+          const pos = keplerPosition(b.elements, simDays);
+          b.mesh.position.copy(pos);
+          const mr = b.moonSceneR || 0.1;
+          b.label.position.set(pos.x, pos.y + mr * 1.4 + 0.2, pos.z);
+        } else if (b.kind === "comet") {
+          if (!cometsOnEl.checked) continue;
+          const pos = keplerPosition(b.elements, simDays);
+          updateCometTails(b, pos, simDays);
+        }
+      }
+
+      updateEarthSeasons(dt);
+
+      if (focusEl.value !== "sun") setFocus();
+
+      for (const b of bodies) {
+        if (b.label && b.label.visible) b.label.quaternion.copy(camera.quaternion);
+      }
+      for (const m of seasonMarkers) {
+        if (m.label && m.label.visible) m.label.quaternion.copy(camera.quaternion);
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // 导出数据表到控制台，便于“写出”
+    console.table(
+      MOONS.map((m) => ({
+        卫星: m.name,
+        母星: m.parent,
+        "a (km)": m.a_km,
+        e: m.e,
+        "i (°)": m.i_deg,
+        "P (d)": m.period_d,
+      }))
+    );
+  </script>
+</body>
+</html>
